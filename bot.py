@@ -22,10 +22,21 @@ from aiohttp import web
 from video_services import load_services_from_env
 from service_router import ServiceRouter
 
-# Configure logging
+# Load environment variables early for logging configuration
+load_dotenv()
+
+# Configure logging with level from environment variable
+LOG_LEVEL = os.getenv('LOG_LEVEL', 'WARNING').upper()
+LOG_LEVEL_MAP = {
+    'DEBUG': logging.DEBUG,
+    'INFO': logging.INFO,
+    'WARNING': logging.WARNING,
+    'ERROR': logging.ERROR,
+    'CRITICAL': logging.CRITICAL
+}
 logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
-    level=logging.WARNING
+    level=LOG_LEVEL_MAP.get(LOG_LEVEL, logging.WARNING)
 )
 logger = logging.getLogger(__name__)
 
@@ -34,9 +45,6 @@ logging.getLogger('httpx').setLevel(logging.WARNING)
 logging.getLogger('httpcore').setLevel(logging.WARNING)
 logging.getLogger('telegram').setLevel(logging.WARNING)
 logging.getLogger('telegram.ext').setLevel(logging.WARNING)
-
-# Load environment variables
-load_dotenv()
 
 # Configuration from environment
 TELEGRAM_BOT_TOKEN = os.getenv('TELEGRAM_BOT_TOKEN')

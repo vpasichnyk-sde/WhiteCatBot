@@ -152,6 +152,7 @@ Auto-discovery handles the rest - no code changes needed in bot.py or service_ro
 
 **Optional:**
 - `BOT_USERNAME` - Bot username for captions (default: @white_cat_downloader_bot)
+- `LOG_LEVEL` - Logging level: DEBUG, INFO, WARNING, ERROR, CRITICAL (default: WARNING)
 - `ENABLE_HEALTH_CHECK` - Enable HTTP health check server (default: true)
 - `PORT` - HTTP server port for health checks (default: 8080, auto-set by Render)
 - `{SERVICE}_PRIORITY` - Service priority 0-100 (higher = tried first)
