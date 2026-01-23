@@ -1,0 +1,43 @@
+services:
+  - type: web
+    name: whitecat-bot
+    env: python
+    region: oregon
+    plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    envVars:
+      - key: TELEGRAM_BOT_TOKEN
+        sync: false
+      - key: BOT_USERNAME
+        value: "@white_cat_downloader_bot"
+      - key: ENABLE_HEALTH_CHECK
+        value: "true"
+      - key: INSTAGRAM_PRIORITY
+        value: "80"
+      - key: TIKTOK_PRIORITY
+        value: "70"
+      - key: YOUTUBE_PRIORITY
+        value: "60"
+      - key: INSTAGRAM120_API_KEY
+        sync: false
+      - key: INSTAGRAM120_PRIORITY
+        value: "80"
+      - key: INSTAGRAM_DOWNLOADER_API_KEY
+        sync: false
+      - key: INSTAGRAM_DOWNLOADER_PRIORITY
+        value: "50"
+      - key: INSTAGRAM_LOOTER2_API_KEY
+        sync: false
+      - key: INSTAGRAM_LOOTER2_PRIORITY
+        value: "35"
+      - key: TIKTOK_API1_API_KEY
+        sync: false
+      - key: TIKTOK_API1_PRIORITY
+        value: "90"
+      - key: TIKTOK_NOWATERMARK2_API_KEY
+        sync: false
+      - key: TIKTOK_NOWATERMARK2_PRIORITY
+        value: "85"
+      - key: PYTHON_VERSION
+        value: "3.11.0"

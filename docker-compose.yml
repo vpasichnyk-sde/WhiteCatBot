@@ -1,0 +1,22 @@
+version: '3.8'
+
+services:
+  bot:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: whitecat-bot
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # Optional: Mount for logs if needed
+      - ./logs:/app/logs
+    environment:
+      - PYTHONUNBUFFERED=1
+      - ENABLE_HEALTH_CHECK=false
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
