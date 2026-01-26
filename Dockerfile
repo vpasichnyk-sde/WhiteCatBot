@@ -16,8 +16,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy application code
 COPY bot.py .
-COPY service_router.py .
-COPY video_services/ ./video_services/
+COPY pipeline/ ./pipeline/
+COPY handlers/ ./handlers/
+COPY video_pipeline/ ./video_pipeline/
+COPY ai_handler_pipeline/ ./ai_handler_pipeline/
 
 # Create non-root user for security
 RUN useradd -m -u 1000 botuser && chown -R botuser:botuser /app
