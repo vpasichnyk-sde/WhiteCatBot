@@ -116,7 +116,7 @@ async def run_bot():
     """
     global message_pipeline
 
-    logger.info("Starting whiteCat bot (v3 - Multi-service)...")
+    logger.info("Starting whiteCat bot v4 (pipeline architecture)...")
 
     # Validate configuration and initialize pipeline
     validate_config()

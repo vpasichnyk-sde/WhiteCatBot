@@ -49,12 +49,14 @@ class GeminiProcessor:
 
         logger.info("[AI] GeminiProcessor initialized successfully")
 
-    async def process_message(self, user_message: str) -> str:
+    async def process_message(self, user_message: str, conversation_history: list = None) -> str:
         """
         Process user message with Gemini API and return full response.
 
         Args:
             user_message: The user's message text
+            conversation_history: Optional list of previous messages in format:
+                                 [{"role": "user"/"model", "parts": [text]}, ...]
 
         Returns:
             The AI-generated response text
@@ -62,18 +64,32 @@ class GeminiProcessor:
         Raises:
             Exception: If API call fails
         """
-        logger.info(f"[AI] Sending request to Gemini API for message: {user_message[:50]}...")
+        history_info = f" with {len(conversation_history)} history messages" if conversation_history else ""
+        logger.info(f"[AI] Sending request to Gemini API for message: {user_message[:50]}...{history_info}")
 
         try:
-            # Prepare contents
-            contents = [
+            # Prepare contents - start with conversation history if available
+            contents = []
+
+            if conversation_history:
+                # Convert history to Gemini API format
+                for msg in conversation_history:
+                    contents.append(
+                        types.Content(
+                            role=msg["role"],
+                            parts=[types.Part.from_text(text=msg["parts"][0])],
+                        )
+                    )
+
+            # Add current user message
+            contents.append(
                 types.Content(
                     role="user",
                     parts=[
                         types.Part.from_text(text=user_message),
                     ],
                 ),
-            ]
+            )
 
             # Collect streaming response
             full_response = []
