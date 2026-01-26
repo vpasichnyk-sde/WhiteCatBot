@@ -165,7 +165,10 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
         await message.reply_video(
             video=video_buffer,
-            caption=caption
+            caption=caption,
+            read_timeout=120,
+            write_timeout=120,
+            connect_timeout=30
         )
         logger.info(f"[HANDLER] ✓ Video sent successfully to user!")
         logger.info(f"[HANDLER] Service: {service_name}, Provider #{provider_num}: {provider_name}")
