@@ -9,6 +9,7 @@ VERSION 3: Multi-service architecture with plugin-based providers
 import os
 import logging
 import asyncio
+import random
 from typing import Optional
 
 from dotenv import load_dotenv
@@ -55,6 +56,11 @@ service_router: Optional[ServiceRouter] = None
 
 # Cat emojis for error messages
 CAT_EMOJIS = ["😺", "😸", "😹", "😻", "😼", "😽", "🙀", "😿", "😾", "🐱"]
+
+
+def get_random_cat_emoji() -> str:
+    """Return a random cat emoji for error messages."""
+    return random.choice(CAT_EMOJIS)
 
 
 def validate_config() -> None:
@@ -112,8 +118,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
     # Check if result indicates provider failure
     if result == "providers_failed":
         logger.warning(f"[HANDLER] ✗ URL matched but all providers failed")
-        import random
-        cat_emoji = random.choice(CAT_EMOJIS)
+        cat_emoji = get_random_cat_emoji()
         error_msg = f"😿 Meow! I couldn't fetch this video. All my providers failed! The video might be private, deleted, or the URL might be incorrect. {cat_emoji}\n\n{BOT_USERNAME}"
         await message.reply_text(error_msg)
         return
@@ -177,8 +182,7 @@ async def handle_message(update: Update, context: ContextTypes.DEFAULT_TYPE) -> 
 
     except Exception as e:
         logger.error(f"[HANDLER] ✗ Error processing message: {type(e).__name__}: {e}", exc_info=True)
-        import random
-        cat_emoji = random.choice(CAT_EMOJIS)
+        cat_emoji = get_random_cat_emoji()
         error_msg = f"😿 Oops! Something went wrong. This White Cat got confused! {cat_emoji}\n\n{BOT_USERNAME}"
         await message.reply_text(error_msg)
 
