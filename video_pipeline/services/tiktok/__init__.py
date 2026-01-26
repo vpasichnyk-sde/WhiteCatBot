@@ -3,7 +3,7 @@ TikTok Service
 Handles TikTok video downloads
 """
 
-from video_services import BaseService, BaseProvider
+from video_pipeline.services import BaseService, BaseProvider
 
 
 class TikTokProvider(BaseProvider):

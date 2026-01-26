@@ -3,7 +3,7 @@ Instagram Service
 Handles Instagram reels, posts, and stories
 """
 
-from video_services import BaseService, BaseProvider
+from video_pipeline.services import BaseService, BaseProvider
 
 
 class InstagramProvider(BaseProvider):

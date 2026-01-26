@@ -1,43 +1,40 @@
 """
-RapidAPI Instagram Looter2 Provider
-Third fallback provider
+RapidAPI Instagram Downloader Provider
+Secondary fallback provider
 """
 
 import json
 import logging
 import http.client
 import urllib.parse
-from video_services.instagram import InstagramProvider
+from video_pipeline.services.instagram import InstagramProvider
 
 logger = logging.getLogger(__name__)
 
 
-class RapidAPIInstagramLooter2Provider(InstagramProvider):
+class RapidAPIInstagramDownloaderProvider(InstagramProvider):
     """
-    Provider using RapidAPI's instagram-looter2.p.rapidapi.com
+    Provider using RapidAPI's instagram-downloader-download-instagram-videos-stories1.p.rapidapi.com
 
     API Response Structure:
     {
-      "data": {
-        "medias": [
-          {"type": "image", "link": "..."},
-          {"type": "video", "link": "...", "img": "..."}
-        ]
-      },
-      "status": true
+      "error": false,
+      "medias": [
+        {"type": "video", "download_url": "..."}
+      ]
     }
     """
 
-    PROVIDER_NAME = "INSTAGRAM_LOOTER2"
+    PROVIDER_NAME = "INSTAGRAM_DOWNLOADER"
     DEFAULT_PRIORITY = 50  # Medium priority - fallback provider
 
     def __init__(self, api_key: str):
-        super().__init__("RapidAPI-InstagramLooter2")
+        super().__init__("RapidAPI-InstagramDownloader")
         self.api_key = api_key
-        self.api_host = 'instagram-looter2.p.rapidapi.com'
+        self.api_host = 'instagram-downloader-download-instagram-videos-stories1.p.rapidapi.com'
 
     def get_video_url(self, instagram_url: str) -> str | None:
-        """Get video URL using RapidAPI Instagram Looter2 service."""
+        """Get video URL using RapidAPI Instagram Downloader service."""
         logger.info(f"[{self.name}] ========== PROVIDER START ==========")
         logger.info(f"[{self.name}] Instagram URL: {instagram_url}")
         logger.info(f"[{self.name}] API Host: {self.api_host}")
@@ -50,7 +47,7 @@ class RapidAPIInstagramLooter2Provider(InstagramProvider):
 
             # URL encode the Instagram URL
             encoded_url = urllib.parse.quote(instagram_url, safe='')
-            endpoint = f"/post-dl?url={encoded_url}"
+            endpoint = f"/get-info-rapidapi?url={encoded_url}"
             logger.info(f"[{self.name}] Endpoint: {endpoint}")
 
             headers = {
@@ -79,27 +76,28 @@ class RapidAPIInstagramLooter2Provider(InstagramProvider):
             response_json = json.loads(data.decode('utf-8'))
             logger.info(f"[{self.name}] Parsed JSON: {json.dumps(response_json, indent=2)[:1000]}")
 
-            # Check for API success status
-            status_value = response_json.get('status')
-            logger.info(f"[{self.name}] Status field value: {status_value}")
+            # Check for API error
+            # API returns either {'error': False, 'medias': [...]} on success
+            # or {'error': 'error message', 'details': '...'} on failure
+            error_value = response_json.get('error')
+            logger.info(f"[{self.name}] Error field value: {error_value} (type: {type(error_value)})")
 
-            if not status_value:
-                logger.error(f"[{self.name}] ✗ API returned status: false")
+            if error_value != False and error_value is not False:
+                # error is either a string (error message) or True
+                logger.error(f"[{self.name}] ✗ API returned error: {error_value}")
+                if 'details' in response_json:
+                    logger.error(f"[{self.name}] Error details: {response_json.get('details')}")
                 return None
 
-            # Extract data object
-            data_obj = response_json.get('data', {})
-            logger.info(f"[{self.name}] Data object keys: {data_obj.keys() if data_obj else 'None'}")
-
             # Extract medias array
-            medias = data_obj.get('medias', [])
+            medias = response_json.get('medias', [])
             logger.info(f"[{self.name}] Medias array length: {len(medias)}")
 
             # Find first video in medias
             for idx, media in enumerate(medias):
                 logger.info(f"[{self.name}] Media {idx}: type={media.get('type')}")
                 if media.get('type') == 'video':
-                    video_url = media.get('link')
+                    video_url = media.get('download_url')
                     if video_url:
                         logger.info(f"[{self.name}] ✓ Found video URL: {video_url}")
                         logger.info(f"[{self.name}] ========== PROVIDER SUCCESS ==========")

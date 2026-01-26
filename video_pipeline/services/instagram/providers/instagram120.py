@@ -6,7 +6,7 @@ Primary provider for Instagram video downloads
 import json
 import logging
 import http.client
-from video_services.instagram import InstagramProvider
+from video_pipeline.services.instagram import InstagramProvider
 
 logger = logging.getLogger(__name__)
 

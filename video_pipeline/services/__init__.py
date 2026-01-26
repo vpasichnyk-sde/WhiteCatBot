@@ -256,7 +256,7 @@ class BaseService:
 
 def discover_services() -> List[Type[BaseService]]:
     """
-    Automatically discover all service classes in the video_services folder.
+    Automatically discover all service classes in the video/services folder.
 
     Returns:
         List of service classes (not instances)
@@ -264,7 +264,7 @@ def discover_services() -> List[Type[BaseService]]:
     services = []
     current_dir = Path(__file__).parent
 
-    # Get all subdirectories in video_services/
+    # Get all subdirectories in video/services/
     for service_dir in current_dir.iterdir():
         if not service_dir.is_dir() or service_dir.name.startswith("_"):
             continue
@@ -277,7 +277,7 @@ def discover_services() -> List[Type[BaseService]]:
         # Import the module
         service_name = service_dir.name
         try:
-            module = importlib.import_module(f"video_services.{service_name}")
+            module = importlib.import_module(f"video_pipeline.services.{service_name}")
 
             # Find all classes that inherit from BaseService
             for name, obj in inspect.getmembers(module, inspect.isclass):
@@ -306,7 +306,7 @@ def load_services_from_env() -> List[BaseService]:
     service_classes = discover_services()
 
     if not service_classes:
-        raise ValueError("No services found in video_services folder!")
+        raise ValueError("No services found in video/services folder!")
 
     initialized_services = []
 

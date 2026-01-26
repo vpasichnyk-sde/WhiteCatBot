@@ -60,21 +60,15 @@ async def download_video(video_url: str) -> Optional[tuple[BytesIO, Optional[str
             logger.warning(f"[DOWNLOAD] No Content-Length header present, will check size during download")
 
         # Download to memory
-        logger.info(f"[DOWNLOAD] Starting chunked download (chunk_size=8192 bytes)...")
+        logger.info(f"[DOWNLOAD] Starting chunked download (chunk_size=16,384 bytes)...")
         video_buffer = BytesIO()
         downloaded = 0
-        chunk_count = 0
 
-        for chunk in response.iter_content(chunk_size=8192):
+        for chunk in response.iter_content(chunk_size=16384):
             if chunk:
                 video_buffer.write(chunk)
                 downloaded += len(chunk)
-                chunk_count += 1
-
-                # Log progress every 1MB
-                if chunk_count % 128 == 0:  # 128 chunks * 8KB ≈ 1MB
-                    logger.info(f"[DOWNLOAD] Progress: {downloaded} bytes ({downloaded / (1024*1024):.2f}MB) downloaded")
-
+                
                 # Check size while downloading
                 if downloaded > MAX_FILE_SIZE:
                     logger.error(f"[DOWNLOAD] Video exceeded size limit during download: {downloaded} bytes")
@@ -83,7 +77,6 @@ async def download_video(video_url: str) -> Optional[tuple[BytesIO, Optional[str
         video_buffer.seek(0)
         logger.info(f"[DOWNLOAD] ✓ Video downloaded successfully!")
         logger.info(f"[DOWNLOAD] Total size: {downloaded} bytes ({downloaded / (1024*1024):.2f}MB)")
-        logger.info(f"[DOWNLOAD] Total chunks: {chunk_count}")
         return video_buffer, None
 
     except requests.HTTPError as e:

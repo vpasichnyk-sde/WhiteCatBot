@@ -12,7 +12,6 @@ services:
       - ./logs:/app/logs
     environment:
       - PYTHONUNBUFFERED=1
-      - ENABLE_HEALTH_CHECK=false
     logging:
       driver: "json-file"
       options:

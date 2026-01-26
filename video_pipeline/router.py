@@ -6,7 +6,7 @@ Routes URLs to appropriate services with priority-based fallback
 
 import logging
 from typing import List, Optional, Tuple
-from video_services import BaseService
+from video_pipeline.services import BaseService
 
 logger = logging.getLogger(__name__)
 
