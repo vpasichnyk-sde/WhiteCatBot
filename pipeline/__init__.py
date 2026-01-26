@@ -17,6 +17,7 @@ Usage:
     await pipeline.run(update, context)
 """
 
+import os
 import logging
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
@@ -71,6 +72,12 @@ class PipelineHandler(ABC):
     Subclasses must implement the process() method.
     """
 
+    # Default priority (0-100, higher runs first)
+    DEFAULT_PRIORITY = 50
+
+    # Handler name for env var generation (e.g., "VIDEO_DOWNLOAD")
+    HANDLER_NAME = None
+
     def __init__(self, name: Optional[str] = None):
         """
         Initialize the handler.
@@ -79,6 +86,7 @@ class PipelineHandler(ABC):
             name: Optional handler name for logging (defaults to class name)
         """
         self.name = name or self.__class__.__name__
+        self.priority = self.DEFAULT_PRIORITY
 
     @abstractmethod
     async def process(self, ctx: PipelineContext) -> None:
@@ -215,4 +223,131 @@ class MessagePipeline:
         return ctx
 
 
-__all__ = ['PipelineContext', 'PipelineHandler', 'MessagePipeline']
+def discover_handlers(handlers_dir: str = "handlers") -> list[type[PipelineHandler]]:
+    """
+    Automatically discover all handler classes in the specified directory.
+
+    Args:
+        handlers_dir: Directory name to scan for handlers (relative to project root)
+
+    Returns:
+        List of handler classes (not instances)
+    """
+    import os
+    import importlib
+    import inspect
+    from pathlib import Path
+
+    handlers = []
+
+    # Get handlers directory
+    handlers_path = Path(handlers_dir)
+    if not handlers_path.exists():
+        logger.warning(f"Handlers directory not found: {handlers_dir}")
+        return handlers
+
+    # Get all .py files in handlers/ directory
+    for file_path in handlers_path.glob("*.py"):
+        if file_path.name.startswith("_"):
+            continue
+
+        # Import the module
+        module_name = file_path.stem
+        try:
+            # Import from handlers.module_name
+            module = importlib.import_module(f"{handlers_dir}.{module_name}")
+
+            # Find all classes that inherit from PipelineHandler
+            for name, obj in inspect.getmembers(module, inspect.isclass):
+                if (issubclass(obj, PipelineHandler) and
+                    obj is not PipelineHandler and
+                    obj.__module__ == module.__name__):
+                    handlers.append(obj)
+                    logger.debug(f"Discovered handler: {obj.__name__} from {module_name}")
+
+        except Exception as e:
+            logger.error(f"Could not load handler from {module_name}: {e}")
+
+    return handlers
+
+
+def load_handlers_from_env(handlers_dir: str = "handlers") -> list[PipelineHandler]:
+    """
+    Load and initialize handlers with priority sorting.
+
+    Each handler can optionally define:
+    - HANDLER_NAME: For env var generation (e.g., "VIDEO_DOWNLOAD")
+    - DEFAULT_PRIORITY: Priority value (0-100, higher runs first)
+
+    Environment variables:
+    - {HANDLER_NAME}_PRIORITY: Override handler priority
+    - {HANDLER_NAME}_ENABLED: Set to "false" to disable handler
+
+    Args:
+        handlers_dir: Directory to scan for handlers
+
+    Returns:
+        List of initialized handler instances (sorted by priority, highest first)
+    """
+    # Discover all available handler classes
+    handler_classes = discover_handlers(handlers_dir)
+
+    if not handler_classes:
+        logger.warning(f"No handlers found in {handlers_dir}/")
+        return []
+
+    initialized_handlers = []
+
+    logger.info("="*60)
+    logger.info("Auto-discovering pipeline handlers...")
+    logger.info("="*60)
+
+    # Initialize each handler
+    for handler_class in handler_classes:
+        try:
+            # Create instance
+            handler = handler_class()
+
+            # Load priority from environment if HANDLER_NAME is defined
+            if hasattr(handler_class, 'HANDLER_NAME') and handler_class.HANDLER_NAME:
+                handler_name = handler_class.HANDLER_NAME
+
+                # Check if handler is disabled
+                enabled_env = f"{handler_name}_ENABLED"
+                if os.getenv(enabled_env, "true").lower() == "false":
+                    logger.info(f"  ⊘ Skipping {handler.name} (disabled via {enabled_env})")
+                    continue
+
+                # Load priority override
+                priority_env = f"{handler_name}_PRIORITY"
+                priority_str = os.getenv(priority_env)
+                if priority_str:
+                    try:
+                        handler.priority = max(0, min(100, int(priority_str)))
+                        logger.debug(f"  Set priority for {handler.name}: {handler.priority}")
+                    except ValueError:
+                        logger.warning(f"  Invalid priority for {handler.name}: {priority_str}")
+
+            initialized_handlers.append(handler)
+            logger.info(f"  ✓ Loaded {handler.name} (priority: {handler.priority})")
+
+        except Exception as e:
+            logger.error(f"  ✗ Failed to initialize {handler_class.__name__}: {e}")
+
+    # Sort by priority (highest first)
+    initialized_handlers.sort(key=lambda h: h.priority, reverse=True)
+
+    logger.info("="*60)
+    logger.info(f"Total handlers loaded: {len(initialized_handlers)}")
+    logger.info("="*60)
+
+    return initialized_handlers
+
+
+__all__ = [
+    'PipelineContext',
+    'PipelineHandler',
+    'MessagePipeline',
+    'discover_handlers',
+    'load_handlers_from_env'
+]

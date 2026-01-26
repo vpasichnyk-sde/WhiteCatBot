@@ -23,10 +23,7 @@ from telegram import Update
 from telegram.ext import Application, MessageHandler, filters, ContextTypes
 
 # Import pipeline system
-from pipeline import MessagePipeline
-
-# Import video feature module
-from video_pipeline import VideoDownloadHandler
+from pipeline import MessagePipeline, load_handlers_from_env
 
 # Load environment variables early for logging configuration
 load_dotenv()
@@ -69,9 +66,16 @@ def init_pipeline() -> MessagePipeline:
     try:
         pipeline = MessagePipeline(stop_on_error=True)
 
-        # Add handlers in order of execution:
-        # Video download handler (auto-discovers services internally)
-        pipeline.add_handler(VideoDownloadHandler())
+        # OPTION 1: Auto-discovery (recommended for many handlers)
+        # Automatically discovers all handlers in handlers/ directory
+        # Handlers are sorted by priority and can be enabled/disabled via env vars
+        handlers = load_handlers_from_env("handlers")
+        for handler in handlers:
+            pipeline.add_handler(handler)
+
+        # OPTION 2: Manual registration (for fine-grained control)
+        # Uncomment below and comment out Option 1 if you prefer explicit control
+        # pipeline.add_handler(VideoDownloadHandler())
 
         logger.info(f"[PIPELINE] Initialized with {len(pipeline.handlers)} handlers")
         return pipeline
