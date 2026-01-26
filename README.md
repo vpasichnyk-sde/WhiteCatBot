@@ -16,7 +16,7 @@ Social media platforms often make it difficult to download videos directly. **wh
 - 🔄 Priority-based provider fallback for reliability
 - 🔌 Plugin architecture - add new services without touching core code
 - 📦 In-memory processing (no disk storage needed)
-- 🚀 Deploy anywhere: Docker, Render.com, or local development
+- 🚀 Deploy anywhere: Docker or local development
 - 💾 100MB video size limit per download
 
 ## Prerequisites
@@ -27,33 +27,47 @@ Social media platforms often make it difficult to download videos directly. **wh
 
 ## Architecture
 
+### Two-Level Handler System
+
+whiteCat uses a modular architecture with auto-discovery:
+
+1. **Pipeline handlers** (`handlers/` directory): Auto-discovered wrappers that can be enabled/disabled via env vars
+2. **Feature modules** (`video_pipeline/`): Self-contained features with their own logic
+
 ### Plugin System
 
-whiteCat uses an auto-discovery plugin system that automatically loads services and providers:
+The video feature uses an auto-discovery plugin system that automatically loads services and providers:
 
 ```
-video_services/
-├── __init__.py           # BaseService, BaseProvider, auto-discovery
-├── instagram/
-│   ├── __init__.py       # InstagramService + InstagramProvider
-│   └── providers/
-│       ├── instagram120.py
-│       ├── instagram_downloader.py
-│       └── instagram_looter2.py
-├── tiktok/
-│   ├── __init__.py       # TikTokService + TikTokProvider
-│   └── providers/
-│       ├── tiktok_api1.py
-│       └── tiktok_nowatermark2.py
+video_pipeline/
+├── __init__.py           # Exports for video feature
+├── handler.py            # Pipeline handler for Telegram integration
+├── router.py             # Routes URLs to services
+├── downloader.py         # Downloads videos to memory
+└── services/
+    ├── __init__.py       # BaseService, BaseProvider, auto-discovery
+    ├── instagram/
+    │   ├── __init__.py   # InstagramService + InstagramProvider
+    │   └── providers/
+    │       ├── instagram120.py
+    │       ├── instagram_downloader.py
+    │       └── instagram_looter2.py
+    └── tiktok/
+        ├── __init__.py   # TikTokService + TikTokProvider
+        └── providers/
+            ├── tiktok_api1.py
+            └── tiktok_nowatermark2.py
 ```
 
 ### How It Works
 
-1. **Message received** → Bot detects URL in message
-2. **ServiceRouter** → Matches URL to service (Instagram/TikTok/etc.)
-3. **Service** → Tries providers by priority until one succeeds
-4. **Download** → Fetches video to memory (max 100MB)
-5. **Reply** → Sends video back to Telegram chat
+1. **Message received** → Bot receives message in Telegram
+2. **Pipeline** → Message flows through auto-discovered handlers by priority
+3. **VideoDownloadHandler** → Detects URL in message
+4. **ServiceRouter** → Matches URL to service (Instagram/TikTok/etc.)
+5. **Service** → Tries providers by priority until one succeeds
+6. **Download** → Fetches video to memory (max 100MB)
+7. **Reply** → Sends video back to Telegram chat
 
 ### Priority-Based Fallback
 
@@ -72,7 +86,11 @@ TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
 
 # Optional
 BOT_USERNAME=@your_bot_username
-ENABLE_HEALTH_CHECK=true  # Set to false for local development
+LOG_LEVEL=INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+
+# Handler Configuration (optional)
+# VIDEO_DOWNLOAD_ENABLED=false  # Disable video downloads
+# VIDEO_DOWNLOAD_PRIORITY=100   # Handler priority (0-100, higher runs first)
 
 # Service Priorities (0-100, higher = tried first)
 INSTAGRAM_PRIORITY=80
@@ -107,13 +125,7 @@ pip install -r requirements.txt
 
 ### Option 1: Local Development
 
-Run the bot locally without health check server:
-
-```bash
-ENABLE_HEALTH_CHECK=false python bot.py
-```
-
-Or with health check server (on port 8080):
+Run the bot locally:
 
 ```bash
 python bot.py
@@ -127,7 +139,23 @@ python bot.py
 docker-compose up --build
 ```
 
-This runs the bot in a container with `ENABLE_HEALTH_CHECK=false` (suitable for local development or background services).
+**Docker Management Scripts (Ubuntu):**
+
+For easier management on Ubuntu/Linux, use the included convenience scripts:
+
+```bash
+# Start the bot and show logs
+./start-bot.sh
+
+# Stop the bot
+./stop-bot.sh
+
+# Update and restart (git pull, rebuilds if needed)
+./update-bot.sh
+
+# View live logs
+docker compose logs -f
+```
 
 **Deploy to cloud Docker services:**
 
@@ -144,43 +172,36 @@ This runs the bot in a container with `ENABLE_HEALTH_CHECK=false` (suitable for 
 
 3. Deploy to your cloud provider (AWS ECS, Google Cloud Run, Azure Container Instances, etc.)
 
-### Option 3: Render.com 
+## Extending the Bot
 
-The bot includes a health check server to work with Render's requirements.
+### Adding Custom Handlers
 
-**Automatic Deployment (Recommended):**
+Handlers are automatically discovered from the `handlers/` directory. To add a new feature handler:
 
-1. Fork this repository to your GitHub account
-2. Go to [Render Dashboard](https://dashboard.render.com/)
-3. Click "New" → "Blueprint"
-4. Connect your GitHub repository
-5. Render will detect `render.yaml` and configure everything automatically
-6. Set your secret environment variables in Render dashboard:
-   - `TELEGRAM_BOT_TOKEN`
-   - `INSTAGRAM120_API_KEY`
-   - `TIKTOK_API1_API_KEY`
-   - (and other API keys)
-7. Click "Apply" to deploy
+1. Create a new Python file in `handlers/` (e.g., `handlers/my_feature.py`)
+2. Create a class that inherits from `PipelineHandler`:
 
-**Manual Deployment:**
+```python
+from pipeline import PipelineHandler, PipelineContext
 
-1. Go to [Render Dashboard](https://dashboard.render.com/)
-2. Click "New" → "Web Service"
-3. Connect your repository
-4. Configure:
-   - **Name:** whitecat-bot
-   - **Environment:** Python 3
-   - **Region:** Choose closest to you
-   - **Build Command:** `pip install -r requirements.txt`
-   - **Start Command:** `python bot.py`
-   - **Plan:** Free
-5. Add environment variables (same as `.env` file)
-6. Ensure `ENABLE_HEALTH_CHECK=true` is set
-7. Click "Create Web Service"
+class MyFeatureHandler(PipelineHandler):
+    HANDLER_NAME = "MY_FEATURE"  # For env var configuration
+    DEFAULT_PRIORITY = 50  # 0-100, higher runs first
 
-The bot will automatically use the `PORT` environment variable provided by Render for health checks.
+    async def process(self, ctx: PipelineContext) -> None:
+        # Your handler logic here
+        message = ctx.message
+        # Process the message...
+        # Call ctx.stop() to prevent further handlers from running
+```
 
-## Adding New Services and Providers
+3. Configure via environment variables:
+   - `MY_FEATURE_ENABLED=false` to disable
+   - `MY_FEATURE_PRIORITY=75` to override priority
+
+4. Restart the bot - the handler is automatically discovered and loaded
+
+### Adding New Services and Providers
 
 The plugin system makes it easy to add new platforms without modifying core code.
 
@@ -189,16 +210,16 @@ The plugin system makes it easy to add new platforms without modifying core code
 1. **Create service directory and base files:**
 
 ```
-video_services/facebook/
+video_pipeline/services/facebook/
 ├── __init__.py
 └── providers/
     └── facebook_api1.py
 ```
 
-2. **Define the service in `video_services/facebook/__init__.py`:**
+2. **Define the service in `video_pipeline/services/facebook/__init__.py`:**
 
 ```python
-from video_services import BaseService, BaseProvider
+from video_pipeline.services import BaseService, BaseProvider
 
 class FacebookProvider(BaseProvider):
     """Base class for Facebook providers."""
@@ -211,10 +232,10 @@ class FacebookService(BaseService):
     PROVIDER_BASE_CLASS = FacebookProvider
 ```
 
-3. **Create a provider in `video_services/facebook/providers/facebook_api1.py`:**
+3. **Create a provider in `video_pipeline/services/facebook/providers/facebook_api1.py`:**
 
 ```python
-from video_services.facebook import FacebookProvider
+from video_pipeline.services.facebook import FacebookProvider
 import requests
 
 class FacebookApi1(FacebookProvider):
@@ -257,10 +278,10 @@ FACEBOOK_API1_PRIORITY=80
 
 To add another Instagram provider, for example:
 
-1. **Create `video_services/instagram/providers/instagram_api_new.py`:**
+1. **Create `video_pipeline/services/instagram/providers/instagram_api_new.py`:**
 
 ```python
-from video_services.instagram import InstagramProvider
+from video_pipeline.services.instagram import InstagramProvider
 import requests
 
 class InstagramApiNew(InstagramProvider):
@@ -301,22 +322,12 @@ Manual testing steps:
 
 1. Start the bot (locally or deployed)
 2. Open Telegram and find your bot
-3. Send a video URL (Instagram, TikTok, or YouTube Shorts)
+3. Send a video URL (Instagram, TikTok)
 4. Verify the bot replies with the downloaded video and caption showing which service/provider was used
 
 Example URLs to test:
 - Instagram: `https://www.instagram.com/reel/...`
 - TikTok: `https://www.tiktok.com/@user/video/...`
-- YouTube Shorts: `https://youtube.com/shorts/...`
-
-## Health Check Endpoints
-
-When `ENABLE_HEALTH_CHECK=true`, the bot exposes HTTP endpoints on the configured `PORT`:
-
-- `GET /` - Simple status check (returns "OK")
-- `GET /health` - Detailed health info (service count, loaded services)
-
-This allows deployment on platforms that require HTTP endpoints (like Render.com free tier).
 
 ## Troubleshooting
 
@@ -329,11 +340,6 @@ This allows deployment on platforms that require HTTP endpoints (like Render.com
 - Check API key is valid and has remaining quota
 - Try lowering the priority of failing providers
 - Add more providers as fallbacks
-
-**Deployment issues on Render:**
-- Ensure `ENABLE_HEALTH_CHECK=true` is set
-- Verify the service is set as "Web Service" (not Background Worker)
-- Check logs for health check endpoint activity
 
 **Docker container exits:**
 - Check logs with `docker-compose logs -f`

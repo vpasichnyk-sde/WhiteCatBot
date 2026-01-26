@@ -31,7 +31,36 @@ Copy `.env.example` to `.env`. Required: `TELEGRAM_BOT_TOKEN`. Each provider nee
 
 Set `LOG_LEVEL=DEBUG` for verbose logging during development.
 
+**Handler Configuration** (optional):
+- `{HANDLER_NAME}_ENABLED=false` - Disable specific handlers (e.g., `VIDEO_DOWNLOAD_ENABLED=false`)
+- `{HANDLER_NAME}_PRIORITY=<num>` - Override handler priority (e.g., `VIDEO_DOWNLOAD_PRIORITY=100`)
+
 ## Architecture
+
+**Note:** README.md contains outdated path references to `video_services/`. The actual directory is `video_pipeline/`.
+
+### Two-Level Handler Architecture
+
+The bot uses a two-level architecture:
+
+1. **Top-level handlers** ([handlers/](handlers/) directory): Auto-discovered wrappers that integrate features into the pipeline
+2. **Feature modules** (like [video_pipeline/](video_pipeline/)): Self-contained features with their own logic
+
+Example: [handlers/video_download_handler.py](handlers/video_download_handler.py) wraps [video_pipeline/handler.py](video_pipeline/handler.py), allowing the video feature to be enabled/disabled via `VIDEO_DOWNLOAD_ENABLED=false`.
+
+### Handler Auto-Discovery
+
+Handlers are automatically discovered from the `handlers/` directory at startup. Each handler file:
+- Must inherit from `PipelineHandler`
+- Can define `HANDLER_NAME` (for env var configuration)
+- Can define `DEFAULT_PRIORITY` (0-100, higher runs first)
+- Is automatically loaded by `load_handlers_from_env("handlers")`
+
+Configure handlers via environment variables:
+- `{HANDLER_NAME}_ENABLED=false` - Disable a specific handler
+- `{HANDLER_NAME}_PRIORITY=<num>` - Override default priority
+
+To add a new top-level handler, create a Python file in `handlers/` that inherits from `PipelineHandler`.
 
 ### Video Feature Module
 
@@ -41,7 +70,7 @@ All video-related code lives in `video_pipeline/`. Services and providers are au
 
 ```
 video_pipeline/
-├── __init__.py          # Exports VideoDownloadHandler, ServiceRouter, etc.
+├── __init__.py          # Exports VideoDownloadHandler, BaseService, BaseProvider
 ├── handler.py           # Pipeline handler for Telegram integration
 ├── router.py            # Routes URLs to services by priority
 ├── downloader.py        # Downloads videos to memory (100MB limit)
@@ -75,22 +104,28 @@ class MyService(BaseService):
    - Inherit from the service's `PROVIDER_BASE_CLASS`
    - Define `PROVIDER_NAME` (uppercase, used for env vars)
    - Define `DEFAULT_PRIORITY` (0-100)
-   - Accept `api_key: str` in `__init__(self, api_key: str)`
-   - Implement `get_video_url(self, url: str) -> str | None` (returns direct video URL or None)
+   - Accept constructor parameters as needed (commonly `api_key: str`)
+   - Implement `get_video_url(self, url: str) -> str | None`
+   - Return direct video URL on success, None on failure
 4. Add API keys to `.env`: `{PROVIDER_NAME}_API_KEY=...` and optionally `{PROVIDER_NAME}_PRIORITY=...`
 
 ### Pipeline System
 
 The pipeline system ([pipeline/__init__.py](pipeline/__init__.py)) provides a framework for processing Telegram messages through a chain of handlers. Each handler extends `PipelineHandler` and implements `process(ctx)`. Handlers can call `ctx.stop()` to halt the pipeline.
 
-Handlers are feature-specific and live in their respective feature modules (e.g., `VideoDownloadHandler` in [video_pipeline/handler.py](video_pipeline/handler.py)). The bot ([bot.py](bot.py)) registers handlers with the pipeline at startup.
+The bot ([bot.py](bot.py)) automatically discovers and registers handlers from the `handlers/` directory at startup.
 
-To add a new handler, create a class extending `PipelineHandler`, implement `process(ctx)`, and register it in `bot.py` with `pipeline.add_handler()`.
+To add a new handler:
+1. Create a class extending `PipelineHandler` in a new file under `handlers/`
+2. Implement `process(ctx)` method
+3. Optionally define `HANDLER_NAME` and `DEFAULT_PRIORITY`
+4. The handler is automatically discovered and loaded on next bot startup
 
 ### Key Files
 
 - [bot.py](bot.py) - Entry point, initializes Telegram bot and pipeline
-- [pipeline/__init__.py](pipeline/__init__.py) - `MessagePipeline`, `PipelineHandler`, `PipelineContext`
+- [pipeline/__init__.py](pipeline/__init__.py) - `MessagePipeline`, `PipelineHandler`, `PipelineContext`, auto-discovery
+- [handlers/](handlers/) - Top-level handlers directory (auto-discovered)
 - [video_pipeline/__init__.py](video_pipeline/__init__.py) - Video feature module exports
 - [video_pipeline/handler.py](video_pipeline/handler.py) - Pipeline handler for video downloads
 - [video_pipeline/router.py](video_pipeline/router.py) - Routes URLs to services by priority
@@ -100,7 +135,7 @@ To add a new handler, create a class extending `PipelineHandler`, implement `pro
 ## Priority System
 
 Services and providers use priority (0-100, higher tried first). Configure via env vars:
-- `{SERVICE_NAME}_PRIORITY` for services
-- `{PROVIDER_NAME}_PRIORITY` for providers
+- `{SERVICE_NAME}_PRIORITY` for services (e.g., `INSTAGRAM_PRIORITY=80`)
+- `{PROVIDER_NAME}_PRIORITY` for providers (e.g., `INSTAGRAM120_PRIORITY=80`)
 
 If a provider fails, the next one is tried automatically.
