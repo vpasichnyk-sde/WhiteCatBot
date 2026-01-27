@@ -6,7 +6,8 @@ Stores conversation history per chat in memory with a rolling window.
 import logging
 from collections import deque, defaultdict
 from threading import Lock
-from typing import Dict, List, Optional
+from typing import List
+from google.genai import types
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +28,12 @@ class ConversationManager:
             max_messages: Maximum number of messages to store per chat (default: 50)
         """
         self.max_messages = max_messages
-        self.conversations: Dict[int, deque] = defaultdict(lambda: deque(maxlen=max_messages))
+        # Use deque with maxlen for automatic rolling window
+        self.conversations: defaultdict[int, deque] = defaultdict(
+            lambda: deque(maxlen=max_messages)
+        )
         self.lock = Lock()
-        logger.info(f"ConversationManager initialized with max_messages={max_messages}")
+        logger.info(f"[AI] ConversationManager initialized with max_messages={max_messages}")
 
     def add_message(self, chat_id: int, role: str, content: str) -> None:
         """
@@ -43,20 +47,21 @@ class ConversationManager:
         if role not in ("user", "model"):
             raise ValueError(f"Invalid role: {role}. Must be 'user' or 'model'")
 
-        message = {
-            "role": role,
-            "parts": [content]
-        }
+        # Create Content object for google-genai SDK
+        message = types.Content(
+            role=role,
+            parts=[types.Part.from_text(text=content)]
+        )
 
         with self.lock:
             self.conversations[chat_id].append(message)
             history_size = len(self.conversations[chat_id])
             logger.debug(
-                f"Added {role} message to chat {chat_id}, "
+                f"[AI] Added {role} message to chat {chat_id}, "
                 f"history size: {history_size}/{self.max_messages}"
             )
 
-    def get_history(self, chat_id: int) -> List[dict]:
+    def get_history(self, chat_id: int) -> List[types.Content]:
         """
         Retrieve conversation history for a specific chat.
 
@@ -64,12 +69,11 @@ class ConversationManager:
             chat_id: Telegram chat ID
 
         Returns:
-            List of message dicts in Gemini API format:
-            [{"role": "user"/"model", "parts": [text]}, ...]
+            List of Content objects in google-genai format
         """
         with self.lock:
             history = list(self.conversations[chat_id])
-            logger.debug(f"Retrieved {len(history)} messages for chat {chat_id}")
+            logger.debug(f"[AI] Retrieved {len(history)} messages for chat {chat_id}")
             return history
 
     def clear_chat(self, chat_id: int) -> None:
@@ -83,9 +87,9 @@ class ConversationManager:
             if chat_id in self.conversations:
                 message_count = len(self.conversations[chat_id])
                 del self.conversations[chat_id]
-                logger.info(f"Cleared {message_count} messages from chat {chat_id}")
+                logger.info(f"[AI] Cleared {message_count} messages from chat {chat_id}")
             else:
-                logger.debug(f"No history to clear for chat {chat_id}")
+                logger.debug(f"[AI] No history to clear for chat {chat_id}")
 
     def get_stats(self) -> dict:
         """

@@ -15,8 +15,12 @@ class AIProcessingHandler(PipelineHandler):
     def __init__(self):
         """Initialize AI processing handler with Gemini processor and trigger registry."""
         super().__init__()
+
+        # Initialize conversation manager (rolling window of 50 messages per chat)
+        self.conversation_manager = ConversationManager(max_messages=50)
+
         try:
-            self.processor = GeminiProcessor()
+            self.processor = GeminiProcessor(self.conversation_manager)
             logger.info("[AI] AIProcessingHandler initialized successfully")
         except Exception as e:
             logger.error(f"[AI] Failed to initialize GeminiProcessor: {e}", exc_info=True)
@@ -24,10 +28,6 @@ class AIProcessingHandler(PipelineHandler):
 
         # Initialize trigger registry
         self.trigger_registry = TriggerRegistry()
-
-        # Initialize conversation manager
-        self.conversation_manager = ConversationManager(max_messages=50)
-        logger.info("[AI] ConversationManager initialized with 50 message history")
 
     async def should_process(self, ctx: PipelineContext) -> bool:
         """
@@ -101,17 +101,12 @@ class AIProcessingHandler(PipelineHandler):
                 action=ChatAction.TYPING
             )
 
-            # Get conversation history for this chat
+            # Get chat ID
             chat_id = message.chat.id
-            conversation_history = self.conversation_manager.get_history(chat_id)
 
-            # Process message with AI (with conversation context)
+            # Process message with AI (rolling window of last 50 messages maintained)
             logger.info(f"[AI] Calling Gemini API for user message: {user_message[:50]}...")
-            response = await self.processor.process_message(user_message, conversation_history)
-
-            # Store messages in conversation history
-            self.conversation_manager.add_message(chat_id, "user", user_message)
-            self.conversation_manager.add_message(chat_id, "model", response)
+            response = await self.processor.process_message(chat_id, user_message)
 
             # Reply to user
             await message.reply_text(response)

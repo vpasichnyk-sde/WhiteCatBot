@@ -2,61 +2,67 @@
 import logging
 import os
 from pathlib import Path
+from typing import List, TYPE_CHECKING
 from google import genai
 from google.genai import types
+
+if TYPE_CHECKING:
+    from .conversation_manager import ConversationManager
 
 logger = logging.getLogger(__name__)
 
 
-class GeminiProcessor:
-    """Handles Google Gemini API interaction."""
+def _load_system_instruction() -> str:
+    """Load system instruction from file."""
+    instruction_file = Path(__file__).parent / "system_instruction.txt"
+    try:
+        with open(instruction_file, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception as e:
+        logger.error(f"[AI] Failed to load system instruction from {instruction_file}: {e}")
+        raise
 
-    def __init__(self):
-        """Initialize Gemini processor with API key and configuration."""
+
+# System instruction for WhiteCat personality
+SYSTEM_INSTRUCTION = _load_system_instruction()
+
+
+class GeminiProcessor:
+    """Handles Google Gemini API interaction with chat sessions."""
+
+    def __init__(self, conversation_manager: "ConversationManager"):
+        """
+        Initialize Gemini processor with API key and configuration.
+
+        Args:
+            conversation_manager: ConversationManager instance for history management
+        """
         self.api_key = os.environ.get("GEMINI_API_KEY")
         if not self.api_key:
             logger.error("[AI] GEMINI_API_KEY not found in environment variables")
             raise ValueError("GEMINI_API_KEY is required")
 
         self.client = genai.Client(api_key=self.api_key)
-        self.model = "gemini-flash-latest"
+        self.model = "gemini-2.0-flash-lite"
+        self.conversation_manager = conversation_manager
 
-        # Load system instruction from txt file
-        instruction_path = Path(__file__).parent / "system_instruction.txt"
-        try:
-            with open(instruction_path, "r", encoding="utf-8") as f:
-                self.system_instruction = f.read().strip()
-            logger.info(f"[AI] Loaded system instruction from {instruction_path}")
-        except Exception as e:
-            logger.error(f"[AI] Failed to load system instruction: {e}", exc_info=True)
-            self.system_instruction = "be nice and gentle."
-
-        # Configure tools
-        self.tools = [
-            types.Tool(googleSearch=types.GoogleSearch()),
-        ]
-
-        # Configure generation settings
+        # Configure generation settings with Google Search tool
         self.generate_content_config = types.GenerateContentConfig(
-            thinking_config=types.ThinkingConfig(
-                thinking_budget=-1,  # Unlimited thinking budget
-            ),
-            tools=self.tools,
-            system_instruction=[
-                types.Part.from_text(text=self.system_instruction),
-            ],
+            temperature=0.85,
+            max_output_tokens=1024,
+            tools=[types.Tool(google_search=types.GoogleSearch())],
+            system_instruction=SYSTEM_INSTRUCTION,
         )
 
-        logger.info("[AI] GeminiProcessor initialized successfully")
+        logger.info("[AI] GeminiProcessor initialized with gemini-2.0-flash-lite and Google Search")
 
-    async def process_message(self, user_message: str, conversation_history: list = None) -> str:
+    async def process_message(self, chat_id: int, user_message: str) -> str:
         """
-        Process user message with Gemini API and return full response.
+        Process user message with Gemini API using chat session and return response.
 
         Args:
+            chat_id: Telegram chat ID (used to maintain separate conversations)
             user_message: The user's message text
-            conversation_history: Optional list of previous messages in format:
-                                 [{"role": "user"/"model", "parts": [text]}, ...]
 
         Returns:
             The AI-generated response text
@@ -64,49 +70,34 @@ class GeminiProcessor:
         Raises:
             Exception: If API call fails
         """
-        history_info = f" with {len(conversation_history)} history messages" if conversation_history else ""
-        logger.info(f"[AI] Sending request to Gemini API for message: {user_message[:50]}...{history_info}")
+        logger.info(f"[AI] Processing message for chat_id={chat_id}: {user_message[:50]}...")
 
         try:
-            # Prepare contents - start with conversation history if available
-            contents = []
+            # Get conversation history from ConversationManager (rolling window of last 50 messages)
+            history = self.conversation_manager.get_history(chat_id)
 
-            if conversation_history:
-                # Convert history to Gemini API format
-                for msg in conversation_history:
-                    contents.append(
-                        types.Content(
-                            role=msg["role"],
-                            parts=[types.Part.from_text(text=msg["parts"][0])],
-                        )
-                    )
+            logger.debug(f"[AI] Creating chat session with {len(history)} history messages")
 
-            # Add current user message
-            contents.append(
-                types.Content(
-                    role="user",
-                    parts=[
-                        types.Part.from_text(text=user_message),
-                    ],
-                ),
+            # Create chat session with history
+            chat = self.client.chats.create(
+                model=self.model,
+                config=self.generate_content_config,
+                history=history
             )
 
-            # Collect streaming response
-            full_response = []
+            # Send message and get response
+            response = chat.send_message(user_message)
+            response_text = response.text
 
-            for chunk in self.client.models.generate_content_stream(
-                model=self.model,
-                contents=contents,
-                config=self.generate_content_config,
-            ):
-                if chunk.text:
-                    full_response.append(chunk.text)
+            # Store both user message and model response in ConversationManager
+            # This maintains the rolling window of last 50 messages
+            self.conversation_manager.add_message(chat_id, "user", user_message)
+            self.conversation_manager.add_message(chat_id, "model", response_text)
 
-            response_text = ''.join(full_response)
-            logger.info(f"[AI] Response received, length: {len(response_text)} characters")
+            logger.info(f"[AI] Response received for chat_id={chat_id}, length: {len(response_text)} characters")
 
             return response_text
 
         except Exception as e:
-            logger.error(f"[AI] Error calling Gemini API: {e}", exc_info=True)
+            logger.error(f"[AI] Error calling Gemini API for chat_id={chat_id}: {e}", exc_info=True)
             raise
