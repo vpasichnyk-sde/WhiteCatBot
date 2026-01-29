@@ -20,6 +20,7 @@ COPY pipeline/ ./pipeline/
 COPY handlers/ ./handlers/
 COPY video_pipeline/ ./video_pipeline/
 COPY ai_handler_pipeline/ ./ai_handler_pipeline/
+COPY ai_summary_pipeline/ ./ai_summary_pipeline/
 
 # Create non-root user for security
 RUN useradd -m -u 1000 botuser && chown -R botuser:botuser /app
