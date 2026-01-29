@@ -17,7 +17,7 @@ class AIHandler(PipelineHandler):
     """
 
     HANDLER_NAME = "AI_HANDLER"
-    DEFAULT_PRIORITY = 50  # Default priority, runs after specialized handlers
+    DEFAULT_PRIORITY = 80  # Default priority, runs after video downloads but before fallback
 
     def __init__(self):
         """Initialize AI handler wrapper."""

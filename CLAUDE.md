@@ -4,9 +4,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-WhiteCat Bot is a Telegram bot with two main features:
+WhiteCat Bot is a Telegram bot with three main features:
 1. **Video downloads** from Instagram, TikTok, and other platforms
 2. **AI chat** powered by Google Gemini with conversation context memory
+3. **Chat summarization** - AI-powered summaries of conversation history
 
 ## Commands
 
@@ -40,16 +41,19 @@ Copy `.env.example` to `.env`.
 Set `LOG_LEVEL=DEBUG` for verbose logging during development.
 
 **Handler Configuration** (optional):
-- `{HANDLER_NAME}_ENABLED=false` - Disable specific handlers (e.g., `VIDEO_DOWNLOAD_ENABLED=false`, `AI_HANDLER_ENABLED=false`)
-- `{HANDLER_NAME}_PRIORITY=<num>` - Override handler priority (e.g., `VIDEO_DOWNLOAD_PRIORITY=100`)
+- `{HANDLER_NAME}_ENABLED=false` - Disable specific handlers (e.g., `VIDEO_DOWNLOAD_ENABLED=false`, `AI_HANDLER_ENABLED=false`, `SUMMARY_HANDLER_ENABLED=false`)
+- `{HANDLER_NAME}_PRIORITY=<num>` - Override handler priority (e.g., `VIDEO_DOWNLOAD_PRIORITY=100`, `SUMMARY_HANDLER_PRIORITY=90`)
+
+**Important Priority Notes:**
+- **Priorities are capped at 0-100** (enforced by `pipeline/__init__.py:326`)
+- `SUMMARY_HANDLER_PRIORITY` **must** be higher than `AI_HANDLER_PRIORITY` to ensure `/summary` commands in replies to bot messages are processed correctly
+- Recommended: `AI_HANDLER_PRIORITY=80`, `SUMMARY_HANDLER_PRIORITY=90`
 
 **AI Trigger Configuration** (optional):
 - `{TRIGGER_NAME}_ENABLED=false` - Disable specific AI triggers (e.g., `AI_COMMAND_ENABLED=false`)
 - `{TRIGGER_NAME}_PRIORITY=<num>` - Override trigger priority
 
 ## Architecture
-
-**Note:** README.md contains outdated path references to `video_services/`. The actual directory is `video_pipeline/`.
 
 ### Two-Level Handler Architecture
 
@@ -179,6 +183,55 @@ class MyTrigger(BaseTrigger):
 ```
 3. Configure via env vars: `AI_MY_TRIGGER_ENABLED=false` or `AI_MY_TRIGGER_PRIORITY=<num>`
 
+### AI Summary Pipeline Feature Module
+
+All chat summarization code lives in `ai_summary_pipeline/`. This feature stores ALL text messages from chat and generates summaries on-demand.
+
+**Flow**: Message -> Store in History -> Check Trigger -> Gemini API (format transcript) -> Reply with Summary
+
+```
+ai_summary_pipeline/
+├── __init__.py              # Exports SummaryProcessingHandler
+├── handler.py               # Pipeline handler for summarization
+├── history_manager.py       # In-memory message storage (200 msgs/chat)
+├── summary_processor.py     # Gemini API integration for summaries
+└── system_instruction.txt   # Summarization prompt (language-aware)
+```
+
+**Message Storage:**
+- Stores last 200 messages per chat in RAM (separate for each chat_id)
+- Stores ALL text messages EXCEPT trigger commands (not just bot interactions)
+- Uses `collections.deque` with automatic rolling window
+- Thread-safe for concurrent access
+- Lost on bot restart (by design)
+- Message format: `{"user_id", "username", "text", "timestamp", "is_forwarded"}`
+- Includes text from: `message.text`, `message.caption`, forwarded messages
+- Skips: stickers, voice messages, media without captions, trigger commands (`/summary` etc.)
+
+**Trigger System:**
+Triggers when message CONTAINS (not just starts with) keywords:
+- `/summarize` or `/summary` (case-insensitive)
+- Configurable list in `handler.py`: `DEFAULT_TRIGGER_KEYWORDS`
+- Works in replies to bot messages (priority 90 > AI_HANDLER priority 80)
+- Trigger messages are NOT stored in history (prevents "/summary" from appearing in summaries)
+
+**Output Format:**
+- Plain text without Markdown formatting (no asterisks, underscores for styling)
+- Simple hyphens (-) for bullet points instead of Markdown lists
+- Preserves @usernames exactly as they appear (e.g., @itis_v without escaping)
+- Optimized for Telegram's default text rendering
+
+**Key Differences from AI Handler:**
+- **Storage**: Raw message metadata vs. AI conversation pairs
+- **Trigger**: Simple keyword matching vs. trigger registry system
+- **Processing**: On-demand only vs. every matched message
+- **Context**: All users' messages vs. user-bot dialogue
+- **Purpose**: Analytical summaries vs. conversational responses
+- **Gemini Config**: Lower temperature (0.3 vs 0.85), no Google Search tool
+
+**Privacy Requirement:**
+Bot must have Privacy Mode OFF in group chats (configured via BotFather) to receive and store all messages.
+
 ### Pipeline System
 
 The pipeline system ([pipeline/__init__.py](pipeline/__init__.py)) provides a framework for processing Telegram messages through a chain of handlers. Each handler extends `PipelineHandler` and implements `process(ctx)`. Handlers can call `ctx.stop()` to halt the pipeline.
@@ -205,13 +258,20 @@ To add a new handler:
 - [video_pipeline/downloader.py](video_pipeline/downloader.py) - Downloads videos to memory (100MB limit)
 - [video_pipeline/services/__init__.py](video_pipeline/services/__init__.py) - Base classes and auto-discovery
 
-**AI Pipeline:**
+**AI Chat Pipeline:**
 - [ai_handler_pipeline/__init__.py](ai_handler_pipeline/__init__.py) - AI feature module exports
 - [ai_handler_pipeline/handler.py](ai_handler_pipeline/handler.py) - Pipeline handler for AI chat
 - [ai_handler_pipeline/processor.py](ai_handler_pipeline/processor.py) - Gemini API integration
 - [ai_handler_pipeline/conversation_manager.py](ai_handler_pipeline/conversation_manager.py) - Conversation context storage
 - [ai_handler_pipeline/trigger_registry.py](ai_handler_pipeline/trigger_registry.py) - Trigger management
 - [ai_handler_pipeline/triggers/__init__.py](ai_handler_pipeline/triggers/__init__.py) - Trigger base class and auto-discovery
+
+**AI Summary Pipeline:**
+- [ai_summary_pipeline/__init__.py](ai_summary_pipeline/__init__.py) - Summary feature module exports
+- [ai_summary_pipeline/handler.py](ai_summary_pipeline/handler.py) - Pipeline handler for chat summarization
+- [ai_summary_pipeline/history_manager.py](ai_summary_pipeline/history_manager.py) - Message history storage (200 msgs)
+- [ai_summary_pipeline/summary_processor.py](ai_summary_pipeline/summary_processor.py) - Gemini API for summaries
+- [ai_summary_pipeline/system_instruction.txt](ai_summary_pipeline/system_instruction.txt) - Language-aware summarization prompt
 
 ## Priority System
 

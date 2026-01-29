@@ -1,6 +1,6 @@
 # WhiteCat Bot 🐱
 
-A powerful Telegram bot that automatically downloads videos from multiple platforms (Instagram, TikTok and more) using a plugin-based multi-service architecture.
+A powerful Telegram bot with AI-powered chat, conversation summarization, and automatic video downloads from multiple platforms (Instagram, TikTok and more).
 
 ## Why whiteCat?
 
@@ -12,6 +12,22 @@ Social media platforms often make it difficult to download videos directly. **wh
 
 ## Features
 
+### AI Features
+- 🤖 **AI Chat** - Conversational AI powered by Google Gemini
+  - Responds to `/cat` or `/кіт` commands
+  - Responds to @mentions
+  - Continues conversations when you reply to bot messages
+  - Maintains last 50 messages of context per chat
+
+- 📊 **Chat Summarization** - AI-powered conversation summaries
+  - Trigger with `/summarize` or `/summary` command anywhere in message
+  - Summarizes last 200 messages from all participants
+  - Language-aware: summary matches the conversation language
+  - Attributes topics to specific users with @usernames
+  - Plain text format optimized for Telegram (no Markdown formatting)
+  - Trigger commands are excluded from summaries automatically
+
+### Video Download Features
 - 🎬 Download videos from Instagram, TikTok
 - 🔄 Priority-based provider fallback for reliability
 - 🔌 Plugin architecture - add new services without touching core code
@@ -23,7 +39,8 @@ Social media platforms often make it difficult to download videos directly. **wh
 
 - Python 3.11+
 - Telegram Bot Token (get from [@BotFather](https://t.me/botfather))
-- RapidAPI keys for video download services
+- Google Gemini API Key (get from [Google AI Studio](https://aistudio.google.com/apikey)) - for AI chat and summarization
+- RapidAPI keys for video download services (optional - only if using video downloads)
 
 ## Architecture
 
@@ -73,6 +90,31 @@ video_pipeline/
 
 Both services and providers use priority ordering (0-100, higher tried first). If one provider fails, the next is attempted automatically, ensuring reliability even when APIs go down.
 
+### AI Features Architecture
+
+whiteCat includes two AI-powered features built on Google Gemini:
+
+**1. AI Chat (`ai_handler_pipeline/`)**
+- Conversational AI with context memory (last 50 messages)
+- Trigger system: commands (`/cat`, `/кіт`), mentions (`@bot`), replies
+- Stores conversation pairs (user/model) in Gemini format
+- Temperature: 0.85 (creative responses)
+- Includes Google Search tool integration
+
+**2. Chat Summarization (`ai_summary_pipeline/`)**
+- Stores ALL text messages from chat (last 200 messages, except trigger commands)
+- Triggered by `/summarize` or `/summary` keywords
+- Message storage: raw metadata (username, text, timestamp, forwarded status)
+- Temperature: 0.3 (factual summaries)
+- Language-aware: summary matches conversation language
+- Plain text output: no Markdown formatting, preserves @usernames correctly
+- Requires Privacy Mode OFF in groups to see all messages
+
+Both features:
+- Auto-discovered and loaded at startup
+- Can be independently enabled/disabled via env vars
+- Share the same `GEMINI_API_KEY`
+- Use thread-safe in-memory storage (lost on restart)
 
 ## Quick Start
 
@@ -84,13 +126,25 @@ Create a `.env` file in the project root:
 # Required
 TELEGRAM_BOT_TOKEN=your_telegram_bot_token_here
 
+# AI Features (Google Gemini API)
+GEMINI_API_KEY=your_gemini_api_key_here
+
 # Optional
 BOT_USERNAME=@your_bot_username
 LOG_LEVEL=INFO  # DEBUG, INFO, WARNING, ERROR, CRITICAL
 
-# Handler Configuration (optional)
+# Handler Configuration (optional, 0-100 = priority, higher runs first)
 # VIDEO_DOWNLOAD_ENABLED=false  # Disable video downloads
-# VIDEO_DOWNLOAD_PRIORITY=100   # Handler priority (0-100, higher runs first)
+# VIDEO_DOWNLOAD_PRIORITY=100
+# AI_HANDLER_ENABLED=false      # Disable AI chat
+# AI_HANDLER_PRIORITY=80
+# SUMMARY_HANDLER_ENABLED=false # Disable chat summarization
+# SUMMARY_HANDLER_PRIORITY=90   # MUST be higher than AI_HANDLER to catch /summary in replies
+
+# AI Trigger Configuration (optional)
+AI_COMMAND_ENABLED=true   # /cat and /кіт commands
+AI_REPLY_ENABLED=true     # Replies to bot messages
+AI_MENTION_ENABLED=true   # @bot_username mentions
 
 # Service Priorities (0-100, higher = tried first)
 INSTAGRAM_PRIORITY=80
@@ -111,6 +165,14 @@ TIKTOK_NOWATERMARK2_PRIORITY=85
 ```
 
 **Getting API Keys:**
+
+*For AI Features (Chat & Summarization):*
+1. Go to [Google AI Studio](https://aistudio.google.com/apikey)
+2. Sign in with your Google account
+3. Click "Create API Key"
+4. Copy the key to `GEMINI_API_KEY` in `.env`
+
+*For Video Downloads:*
 1. Sign up at [RapidAPI](https://rapidapi.com/)
 2. Subscribe to the video download APIs you need (most have free tiers)
 3. Copy your API key to the `.env` file
@@ -120,6 +182,33 @@ TIKTOK_NOWATERMARK2_PRIORITY=85
 ```bash
 pip install -r requirements.txt
 ```
+
+### 3. Using the Bot
+
+**AI Chat:**
+- Send `/cat <your message>` or `/кіт <your message>` to start a conversation
+- Mention the bot: `@your_bot_username what's the weather?`
+- Reply to any bot message to continue the conversation
+- The bot remembers the last 50 messages in each chat for context
+
+**Chat Summarization:**
+- Send any message containing `/summarize` or `/summary`
+- Examples:
+  - `Can you /summarize this discussion?`
+  - `/summary of the last hour please`
+- The bot will analyze the last 200 messages and provide:
+  - Brief overview of the conversation
+  - Key topics with attribution to participants (@usernames)
+  - Any decisions or action items
+- Summary format: plain text with simple bullet points (optimized for Telegram)
+- Trigger commands are automatically excluded from the summary
+
+**Note:** For group chats, disable Privacy Mode in [@BotFather](https://t.me/botfather) so the bot can see and summarize all messages.
+
+**Video Downloads:**
+- Simply send any Instagram or TikTok video URL
+- The bot will automatically detect and download the video
+- No commands needed!
 
 ## Deployment Options
 
