@@ -22,15 +22,16 @@ docker compose stop
 echo "📥 Pulling latest changes from git..."
 git pull
 
-# Check if requirements.txt or Dockerfile changed
+# Check if there were any changes
 CHANGED_FILES=$(git diff --name-only HEAD@{1} HEAD 2>/dev/null || echo "")
 
-if echo "$CHANGED_FILES" | grep -qE "requirements.txt|Dockerfile"; then
-    echo "🔨 Detected changes in requirements.txt or Dockerfile"
-    echo "🔨 Rebuilding Docker image..."
+if [ -n "$CHANGED_FILES" ]; then
+    echo "🔨 Detected changes, rebuilding Docker image..."
+    echo "Changed files:"
+    echo "$CHANGED_FILES" | sed 's/^/  - /'
     docker compose up -d --build
 else
-    echo "✅ No rebuild needed, just restarting..."
+    echo "✅ No changes detected, just restarting..."
     docker compose up -d
 fi
 
