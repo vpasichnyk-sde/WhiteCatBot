@@ -73,7 +73,8 @@ class GeminiProcessor:
         logger.info(f"[AI] Processing message for chat_id={chat_id}: {user_message[:50]}...")
 
         try:
-            # Get conversation history from ConversationManager (rolling window of last 50 messages)
+            # Get conversation history from ConversationManager (rolling window of last 250 messages)
+            # History is automatically converted from metadata format to Gemini API format
             history = self.conversation_manager.get_history(chat_id)
 
             logger.debug(f"[AI] Creating chat session with {len(history)} history messages")
@@ -89,10 +90,9 @@ class GeminiProcessor:
             response = chat.send_message(user_message)
             response_text = response.text
 
-            # Store both user message and model response in ConversationManager
-            # This maintains the rolling window of last 50 messages
-            self.conversation_manager.add_message(chat_id, "user", user_message)
-            self.conversation_manager.add_message(chat_id, "model", response_text)
+            # Note: Message storage now handled by handler.py
+            # - User message stored in should_process() (passive listening)
+            # - Bot message stored in process() after replying
 
             logger.info(f"[AI] Response received for chat_id={chat_id}, length: {len(response_text)} characters")
 

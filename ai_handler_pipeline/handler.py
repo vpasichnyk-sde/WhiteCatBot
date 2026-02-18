@@ -1,5 +1,6 @@
 """AI handler pipeline logic for Telegram bot."""
 import logging
+from datetime import datetime
 from telegram.constants import ChatAction
 from pipeline import PipelineHandler, PipelineContext
 from .processor import GeminiProcessor
@@ -16,8 +17,8 @@ class AIProcessingHandler(PipelineHandler):
         """Initialize AI processing handler with Gemini processor and trigger registry."""
         super().__init__()
 
-        # Initialize conversation manager (rolling window of 50 messages per chat)
-        self.conversation_manager = ConversationManager(max_messages=50)
+        # Initialize conversation manager (rolling window of 250 messages per chat)
+        self.conversation_manager = ConversationManager(max_messages=250)
 
         try:
             self.processor = GeminiProcessor(self.conversation_manager)
@@ -29,17 +30,29 @@ class AIProcessingHandler(PipelineHandler):
         # Initialize trigger registry
         self.trigger_registry = TriggerRegistry()
 
+        # Bot username (lazy-loaded)
+        self.bot_username = None
+
     async def should_process(self, ctx: PipelineContext) -> bool:
         """
-        Check if message should be processed by AI handler.
+        Store ALL messages passively, return True only if triggered.
+
+        This implements passive listening: the bot stores all text messages
+        in the conversation history but only responds when explicitly triggered.
 
         Args:
             ctx: Pipeline context containing message info
 
         Returns:
-            True if any trigger matches, False otherwise
+            True if message triggered AI response, False otherwise
         """
-        if not ctx.message_text:
+        message = ctx.message
+        if not message:
+            return False
+
+        # Extract text from message (message.text takes priority over caption)
+        text = message.text or message.caption
+        if not text:
             return False
 
         # Check if processor is initialized
@@ -49,10 +62,43 @@ class AIProcessingHandler(PipelineHandler):
         # Initialize bot identity on first message (lazy loading)
         if not self.trigger_registry._identity_initialized:
             await self.trigger_registry.initialize_bot_identity(ctx.context.bot)
+            if self.bot_username is None:
+                try:
+                    bot_info = await ctx.context.bot.get_me()
+                    self.bot_username = bot_info.username
+                except Exception as e:
+                    logger.error(f"[AI] Failed to get bot username: {e}")
+                    self.bot_username = "WhiteCat"
 
         # Check triggers
-        trigger_result = await self.trigger_registry.check_triggers(ctx.message)
+        trigger_result = await self.trigger_registry.check_triggers(message)
 
+        # Store message ALWAYS for passive listening (all user messages)
+        # This includes both triggered and non-triggered messages
+        if message.from_user:
+            # Extract username with fallback chain
+            username = (
+                message.from_user.username or
+                message.from_user.first_name or
+                f"User{message.from_user.id}"
+            )
+
+            try:
+                self.conversation_manager.add_message(
+                    chat_id=message.chat.id,
+                    user_id=message.from_user.id,
+                    username=username,
+                    text=text,
+                    timestamp=message.date,
+                    role="user",
+                    is_bot=False,
+                    is_trigger=bool(trigger_result)
+                )
+                logger.debug(f"[AI] Stored message from @{username} in chat {message.chat.id}")
+            except Exception as e:
+                logger.error(f"[AI] Failed to store message: {e}")
+
+        # Return True only if triggered (reactive response)
         if trigger_result:
             # Store trigger result in context for process() to use
             ctx.data['ai_trigger'] = trigger_result[0]
@@ -104,13 +150,29 @@ class AIProcessingHandler(PipelineHandler):
             # Get chat ID
             chat_id = message.chat.id
 
-            # Process message with AI (rolling window of last 50 messages maintained)
+            # Process message with AI (rolling window of last 250 messages maintained)
             logger.info(f"[AI] Calling Gemini API for user message: {user_message[:50]}...")
             response = await self.processor.process_message(chat_id, user_message)
 
             # Reply to user
             await message.reply_text(response)
             logger.info(f"[AI] Response sent to user {message.from_user.id}")
+
+            # Capture bot's message immediately after sending
+            try:
+                self.conversation_manager.add_message(
+                    chat_id=chat_id,
+                    user_id=0,  # Bot user ID placeholder
+                    username=self.bot_username or "WhiteCat",
+                    text=response,
+                    timestamp=datetime.now(),
+                    role="model",
+                    is_bot=True,
+                    is_trigger=False
+                )
+                logger.debug(f"[AI] Stored bot response in chat {chat_id}")
+            except Exception as e:
+                logger.error(f"[AI] Failed to store bot message: {e}")
 
         except Exception as e:
             logger.error(f"[AI] Error processing message: {e}", exc_info=True)
