@@ -25,11 +25,17 @@ class ReplyTrigger(BaseTrigger):
 
         # Check if replying to a message from the bot
         is_reply_to_bot = message.reply_to_message.from_user.id == self._bot_id
+        if not is_reply_to_bot:
+            return False
 
-        if is_reply_to_bot:
-            logger.debug(f"[AI] Reply to bot detected from user {message.from_user.id}")
+        # Replies to the bot's downloaded videos are just conversation, not
+        # a prompt for the AI — people reply to them to comment on the video
+        if message.reply_to_message.video or message.reply_to_message.animation:
+            logger.debug(f"[AI] Reply to bot's video from user {message.from_user.id} - ignoring (passive)")
+            return False
 
-        return is_reply_to_bot
+        logger.debug(f"[AI] Reply to bot detected from user {message.from_user.id}")
+        return True
 
     def extract_user_message(self, message_text: str) -> Optional[str]:
         """
