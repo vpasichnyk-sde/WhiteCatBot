@@ -2,13 +2,13 @@
 import logging
 from telegram.constants import ChatAction
 from pipeline import PipelineHandler, PipelineContext
-from .history_manager import HistoryManager
+from message_storage import get_conversation_manager, extract_sender_info
 from .summary_processor import SummaryProcessor
 
 logger = logging.getLogger(__name__)
 
 # Constants
-MESSAGE_HISTORY_LIMIT = 200  # Both storage maxlen and summary limit
+MESSAGE_HISTORY_LIMIT = 200  # Max messages included in a summary
 
 # Trigger keywords (case-insensitive CONTAINS check)
 DEFAULT_TRIGGER_KEYWORDS = [
@@ -25,8 +25,8 @@ class SummaryProcessingHandler(PipelineHandler):
         """Initialize summary processing handler with history manager and processor."""
         super().__init__()
 
-        # Initialize history manager (rolling window of 200 messages per chat)
-        self.history_manager = HistoryManager(max_messages=MESSAGE_HISTORY_LIMIT)
+        # Shared conversation storage (single rolling window used by all features)
+        self.conversation_manager = get_conversation_manager()
 
         try:
             self.summary_processor = SummaryProcessor()
@@ -79,35 +79,23 @@ class SummaryProcessingHandler(PipelineHandler):
                 is_trigger = True
                 break
 
-        # Store message in history ONLY if it's NOT a trigger
-        # This prevents "/summary" commands from appearing in the summary itself
-        if not is_trigger:
-            # Extract user info (handle forwarded messages)
-            is_forwarded = bool(message.forward_origin)
-            if is_forwarded:
-                # Try to get original sender info
-                username = "Forwarded"
-                user_id = 0
-                # Try to extract original sender if available
-                if hasattr(message.forward_origin, 'sender_user') and message.forward_origin.sender_user:
-                    orig_user = message.forward_origin.sender_user
-                    username = orig_user.username or orig_user.first_name or "Forwarded"
-                    user_id = orig_user.id
-            else:
-                # Regular message
-                username = message.from_user.username or message.from_user.first_name
-                user_id = message.from_user.id
-
-            # Store message in history
+        # Store message in shared history ONLY if it's NOT a trigger (prevents
+        # "/summary" commands from appearing in summaries) and no other handler
+        # already stored it this pipeline run
+        if not is_trigger and not ctx.data.get('message_stored'):
+            user_id, username, is_forwarded = extract_sender_info(message)
             try:
-                self.history_manager.add_message(
+                self.conversation_manager.add_message(
                     chat_id=message.chat.id,
                     user_id=user_id,
                     username=username,
                     text=text,
                     timestamp=message.date,
+                    role="user",
+                    is_bot=False,
                     is_forwarded=is_forwarded
                 )
+                ctx.data['message_stored'] = True
             except Exception as e:
                 logger.error(f"[SUMMARY] Failed to store message: {e}")
 
@@ -132,8 +120,8 @@ class SummaryProcessingHandler(PipelineHandler):
                 action=ChatAction.TYPING
             )
 
-            # Get message history
-            messages = self.history_manager.get_history(chat_id, limit=MESSAGE_HISTORY_LIMIT)
+            # Get message history from the shared store (user messages only)
+            messages = self.conversation_manager.get_raw_history(chat_id, limit=MESSAGE_HISTORY_LIMIT)
 
             if not messages:
                 await message.reply_text("No messages to summarize yet.")

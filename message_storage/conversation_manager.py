@@ -7,10 +7,43 @@ import logging
 from collections import deque, defaultdict
 from datetime import datetime
 from threading import Lock
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional, Tuple
 from google.genai import types
 
 logger = logging.getLogger(__name__)
+
+
+def extract_sender_info(message) -> Tuple[int, str, bool]:
+    """
+    Extract (user_id, username, is_forwarded) from a Telegram message.
+
+    Forwarded messages are attributed to the original sender when Telegram
+    exposes it (hidden-privacy forwards fall back to "Forwarded"/user_id 0).
+
+    Args:
+        message: Telegram Message object
+
+    Returns:
+        Tuple of (user_id, username, is_forwarded)
+    """
+    if message.forward_origin:
+        user_id = 0
+        username = "Forwarded"
+        sender_user = getattr(message.forward_origin, 'sender_user', None)
+        if sender_user:
+            user_id = sender_user.id
+            username = sender_user.username or sender_user.first_name or "Forwarded"
+        return user_id, username, True
+
+    user_id = message.from_user.id if message.from_user else 0
+    username = "Unknown"
+    if message.from_user:
+        username = (
+            message.from_user.username or
+            message.from_user.first_name or
+            f"User{message.from_user.id}"
+        )
+    return user_id, username, False
 
 
 class ConversationManager:
@@ -48,7 +81,8 @@ class ConversationManager:
         timestamp: datetime,
         role: str,
         is_bot: bool = False,
-        is_trigger: bool = False
+        is_trigger: bool = False,
+        is_forwarded: bool = False
     ) -> None:
         """
         Add a message to the conversation history with full metadata.
@@ -62,6 +96,7 @@ class ConversationManager:
             role: Message role ("user" or "model")
             is_bot: Whether message is from the bot (default: False)
             is_trigger: Whether this message triggered a response (default: False)
+            is_forwarded: Whether message was forwarded (default: False)
         """
         if role not in ("user", "model"):
             raise ValueError(f"Invalid role: {role}. Must be 'user' or 'model'")
@@ -74,7 +109,8 @@ class ConversationManager:
             "timestamp": timestamp,
             "role": role,
             "is_bot": is_bot,
-            "is_trigger": is_trigger
+            "is_trigger": is_trigger,
+            "is_forwarded": is_forwarded
         }
 
         with self.lock:
@@ -107,7 +143,7 @@ class ConversationManager:
             parts=[types.Part.from_text(text=text)]
         )
 
-    def get_history(self, chat_id: int) -> List[types.Content]:
+    def get_history(self, chat_id: int, exclude_last: bool = False) -> List[types.Content]:
         """
         Retrieve conversation history for a specific chat.
 
@@ -115,12 +151,17 @@ class ConversationManager:
 
         Args:
             chat_id: Telegram chat ID
+            exclude_last: If True, omit the most recent message (used when the
+                caller sends that message to Gemini separately as the live prompt)
 
         Returns:
             List of Content objects in google-genai format
         """
         with self.lock:
             raw_messages = list(self.conversations[chat_id])
+
+            if exclude_last and raw_messages:
+                raw_messages = raw_messages[:-1]
 
             # Convert each stored message to Gemini format
             history = [
@@ -130,6 +171,34 @@ class ConversationManager:
 
             logger.debug(f"[AI] Retrieved {len(history)} messages for chat {chat_id}")
             return history
+
+    def get_raw_history(
+        self,
+        chat_id: int,
+        limit: Optional[int] = None,
+        include_bot: bool = False
+    ) -> List[Dict[str, Any]]:
+        """
+        Retrieve raw message dicts for a specific chat (used by summarization).
+
+        Args:
+            chat_id: Telegram chat ID
+            limit: If set, return only the last N matching messages
+            include_bot: Whether to include the bot's own messages (default: False)
+
+        Returns:
+            List of message dictionaries (oldest to newest)
+        """
+        with self.lock:
+            history = [
+                msg for msg in self.conversations[chat_id]
+                if include_bot or not msg["is_bot"]
+            ]
+
+        if limit and limit < len(history):
+            history = history[-limit:]
+        logger.debug(f"[STORAGE] Retrieved {len(history)} raw messages for chat {chat_id}")
+        return history
 
     def clear_chat(self, chat_id: int) -> None:
         """

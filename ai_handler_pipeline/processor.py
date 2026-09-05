@@ -2,12 +2,12 @@
 import logging
 import os
 from pathlib import Path
-from typing import List, TYPE_CHECKING
+from typing import TYPE_CHECKING
 from google import genai
 from google.genai import types
 
 if TYPE_CHECKING:
-    from .conversation_manager import ConversationManager
+    from message_storage import ConversationManager
 
 logger = logging.getLogger(__name__)
 
@@ -56,13 +56,24 @@ class GeminiProcessor:
 
         logger.info("[AI] GeminiProcessor initialized with gemini-2.0-flash-lite and Google Search")
 
-    async def process_message(self, chat_id: int, user_message: str) -> str:
+    async def process_message(
+        self,
+        chat_id: int,
+        user_message: str,
+        username: str | None = None,
+        exclude_last_from_history: bool = False
+    ) -> str:
         """
         Process user message with Gemini API using chat session and return response.
 
         Args:
             chat_id: Telegram chat ID (used to maintain separate conversations)
             user_message: The user's message text
+            username: Sender's display name, prepended as "@username: " for
+                attribution (matching how history formats user messages)
+            exclude_last_from_history: If True, drop the most recent history
+                entry — the triggering message was already stored by
+                should_process(), so without this Gemini would see it twice
 
         Returns:
             The AI-generated response text
@@ -75,7 +86,7 @@ class GeminiProcessor:
         try:
             # Get conversation history from ConversationManager (rolling window of last 250 messages)
             # History is automatically converted from metadata format to Gemini API format
-            history = self.conversation_manager.get_history(chat_id)
+            history = self.conversation_manager.get_history(chat_id, exclude_last=exclude_last_from_history)
 
             logger.debug(f"[AI] Creating chat session with {len(history)} history messages")
 
@@ -87,7 +98,8 @@ class GeminiProcessor:
             )
 
             # Send message and get response
-            response = chat.send_message(user_message)
+            prompt = f"@{username}: {user_message}" if username else user_message
+            response = chat.send_message(prompt)
             response_text = response.text
 
             # Note: Message storage now handled by handler.py
