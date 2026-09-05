@@ -43,18 +43,19 @@ class GeminiProcessor:
             raise ValueError("GEMINI_API_KEY is required")
 
         self.client = genai.Client(api_key=self.api_key)
-        self.model = "gemini-2.0-flash-lite"
+        self.model = "gemini-3.1-flash-lite"
         self.conversation_manager = conversation_manager
 
         # Configure generation settings with Google Search tool
         self.generate_content_config = types.GenerateContentConfig(
             temperature=0.85,
             max_output_tokens=1024,
+            thinking_config=types.ThinkingConfig(thinking_level="MINIMAL"),
             tools=[types.Tool(google_search=types.GoogleSearch())],
             system_instruction=SYSTEM_INSTRUCTION,
         )
 
-        logger.info("[AI] GeminiProcessor initialized with gemini-2.0-flash-lite and Google Search")
+        logger.info(f"[AI] GeminiProcessor initialized with {self.model} and Google Search")
 
     async def process_message(
         self,

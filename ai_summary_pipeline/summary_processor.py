@@ -37,7 +37,7 @@ class SummaryProcessor:
             raise ValueError("GEMINI_API_KEY is required")
 
         self.client = genai.Client(api_key=self.api_key)
-        self.model = "gemini-2.0-flash-lite"
+        self.model = "gemini-3.1-flash-lite"
 
         # Configure generation settings for summarization
         # Lower temperature than chat (0.3 vs 0.85) for more factual summaries
@@ -45,10 +45,11 @@ class SummaryProcessor:
         self.generate_content_config = types.GenerateContentConfig(
             temperature=0.3,
             max_output_tokens=2048,
+            thinking_config=types.ThinkingConfig(thinking_level="MINIMAL"),
             system_instruction=SYSTEM_INSTRUCTION,
         )
 
-        logger.info("[SUMMARY] SummaryProcessor initialized with gemini-2.0-flash-lite")
+        logger.info(f"[SUMMARY] SummaryProcessor initialized with {self.model}")
 
     def _format_messages_for_summary(self, messages: List[Dict[str, Any]]) -> str:
         """
